@@ -7,10 +7,6 @@
 SoftwareSerial rs485(RS485_RX, RS485_TX);
 #endif
 
-// === Global Timers ===
-unsigned long lastSendTime = 0;
-unsigned long heartbeatTime = 0;
-
 // === RS-485 Control ===
 void enableTransmit() {
   digitalWrite(DE_RE_PIN, HIGH);
@@ -114,23 +110,19 @@ void setup() {
 // === LOOP ===
 void loop() {
 #ifdef ROLE_MASTER
-  if (millis() - lastSendTime > 2000) {
-    lastSendTime = millis();
-    sendCalibrateCommand(0x01);  // Send to slave addr 0x01
-    delay(100);                  // Wait for reply
-    readReply();
-  }
+  sendCalibrateCommand(0x01);  // Send to slave addr 0x01
+  delay(100);                  // Wait for reply
+  readReply();
+  delay(2000);                 // Send every 2 seconds
 
 #elif defined(ROLE_SLAVE1)
   handleRequest();
   delay(10);  // Give time for loop
 #endif
 
-  if (millis() - heartbeatTime > 500) {
-    heartbeatTime = millis();
-    static bool led = false;
-    digitalWrite(LED_BUILTIN, led ? HIGH : LOW);
-    led = !led;
-  }
-  delay(100);
+  // Optional LED heartbeat
+  static bool led = false;
+  digitalWrite(LED_BUILTIN, led ? HIGH : LOW);
+  led = !led;
+  delay(500);
 }
