@@ -11,9 +11,9 @@
 #if defined(ROLE_MASTER)
   #define ROLE_NAME "MASTER"
 #elif defined(ROLE_SLAVE1)
-  #define ROLE_NAME "SLAVE 1"
+  #define ROLE_NAME "SLAVE_1"
 #elif defined(ROLE_SLAVE2)
-  #define ROLE_NAME "SLAVE 2"
+  #define ROLE_NAME "SLAVE_2"
 #else
   #define ROLE_NAME "UNKNOWN"
 #endif

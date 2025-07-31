@@ -21,14 +21,14 @@
 #ifdef TARGET_NANO
 
   #ifdef ROLE_MASTER
-    #define DE_RE_PIN 4
-    #define RS485_RX 10
-    #define RS485_TX 11
+    #define DE_RE_PIN 5
+    #define RS485_RX 3
+    #define RS485_TX 6
     #define LED_BUILTIN 13
   #elif defined(ROLE_SLAVE1)
     #define DE_RE_PIN 5
-    #define RS485_RX 10
-    #define RS485_TX 11
+    #define RS485_RX 3
+    #define RS485_TX 6
     #define LED_BUILTIN 13
   #endif
 
