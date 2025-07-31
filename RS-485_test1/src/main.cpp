@@ -7,6 +7,10 @@
 SoftwareSerial rs485(RS485_RX, RS485_TX);
 #endif
 
+unsigned long lastSendTime = 0;
+unsigned long heartbeatTime = 0;
+int counter = 0;
+
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(DE_RE_PIN, OUTPUT);
@@ -19,33 +23,70 @@ void setup() {
   Serial.println(ROLE_NAME);
 }
 
+void enableTransmit() {
+  digitalWrite(DE_RE_PIN, HIGH);
+  delayMicroseconds(100);
+}
+
+void disableTransmit() {
+  delayMicroseconds(100);
+  digitalWrite(DE_RE_PIN, LOW);
+}
+
 void loop() {
 #ifdef ROLE_MASTER
-  digitalWrite(DE_RE_PIN, HIGH);   // Enable transmit
-  delayMicroseconds(100);
+  if (millis() - lastSendTime > 2000) {
+    lastSendTime = millis();
+    counter++;
 
-  rs485.println("Hello from MASTER");
-  rs485.flush();                   // Wait until sent
-  delayMicroseconds(100);
+    // Send to slave
+    enableTransmit();
+    rs485.println(counter);
+    rs485.flush();
+    disableTransmit();
 
-  digitalWrite(DE_RE_PIN, LOW);    // Back to receive
-  delay(2000);                     // Send every 2 seconds
+    Serial.print("Sent to slave: ");
+    Serial.println(counter);
 
-  Serial.println("Sent message from MASTER");
-
-#else
-  if (rs485.available()) {
-    String msg = rs485.readStringUntil('\n');
-    Serial.print("Received: ");
-    Serial.println(msg);
+    // Wait and read reply
+    delay(100); // Give slave time to respond
+    if (rs485.available()) {
+      String response = rs485.readStringUntil('\n');
+      Serial.print("Received from slave: ");
+      Serial.println(response);
+    }
   }
-  Serial.print("Listening as: ");
-  Serial.println(ROLE_NAME);
+
+#else  // SLAVE
+  if (rs485.available()) {
+    String incoming = rs485.readStringUntil('\n');
+    int value = incoming.toInt();
+    int reply = value + 1000;
+
+    Serial.print("Received from master: ");
+    Serial.println(value);
+
+    delay(10); // Brief pause before responding
+
+    enableTransmit();
+    rs485.println(reply);
+    rs485.flush();
+    disableTransmit();
+
+    Serial.print("Sent to master: ");
+    Serial.println(reply);
+  }
 #endif
 
-  // Blink onboard LED to show life
-  static bool led = false;
-  digitalWrite(LED_BUILTIN, led ? HIGH : LOW);
-  led = !led;
-  delay(500);
+  // LED heartbeat
+  if (millis() - heartbeatTime > 500) {
+    heartbeatTime = millis();
+
+    static bool led = false;
+    digitalWrite(LED_BUILTIN, led ? HIGH : LOW);
+    led = !led;
+
+    //Serial.println("Heartbeat");
+  }
+  delay(100); // Prevent flooding the serial output
 }
