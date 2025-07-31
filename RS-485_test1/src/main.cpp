@@ -7,6 +7,10 @@
 SoftwareSerial rs485(RS485_RX, RS485_TX);
 #endif
 
+// === Global Timers ===
+unsigned long lastSendTime = 0;
+unsigned long heartbeatTime = 0;
+
 // === RS-485 Control ===
 void enableTransmit() {
   digitalWrite(DE_RE_PIN, HIGH);
@@ -31,68 +35,69 @@ void sendCalibrateCommand(uint8_t addr) {
   rs485.flush();
   disableTransmit();
 
-  Serial.println("Sent: FA 01 80 00 CRC");
+  Serial.print("Sent Calibrate Command to 0x");
+  Serial.println(addr, HEX);
 }
 
-void readReply() {
-  if (rs485.available()) {
-    uint8_t buffer[10];
-    int i = 0;
-    while (rs485.available() && i < 10) {
-      buffer[i++] = rs485.read();
-    }
+// void readReply() {
+//   if (rs485.available()) {
+//     uint8_t buffer[10];
+//     int i = 0;
+//     while (rs485.available() && i < 10) {
+//       buffer[i++] = rs485.read();
+//     }
 
-    if (i >= 5 && buffer[0] == 0xFB) {
-      Serial.print("Received: ");
-      for (int j = 0; j < i; j++) {
-        Serial.print(buffer[j], HEX);
-        Serial.print(" ");
-      }
-      Serial.println();
-    }
-  }
-}
+//     if (i >= 5 && buffer[0] == 0xFB) {
+//       Serial.print("Received: ");
+//       for (int j = 0; j < i; j++) {
+//         Serial.print(buffer[j], HEX);
+//         Serial.print(" ");
+//       }
+//       Serial.println();
+//     }
+//   }
+// }
 #endif
 
 // === SLAVE ===
-#ifdef ROLE_SLAVE1
-void handleRequest() {
-  static uint8_t buffer[10];
-  static int index = 0;
+// #ifdef ROLE_SLAVE1
+// void handleRequest() {
+//   static uint8_t buffer[10];
+//   static int index = 0;
 
-  while (rs485.available()) {
-    uint8_t b = rs485.read();
-    buffer[index++] = b;
+//   while (rs485.available()) {
+//     uint8_t b = rs485.read();
+//     buffer[index++] = b;
 
-    if (index >= 5) {
-      if (buffer[0] == 0xFA && buffer[1] == 0x01 && buffer[2] == 0x80) {
-        uint8_t crc_calc = (buffer[0] + buffer[1] + buffer[2] + buffer[3]) & 0xFF;
-        if (buffer[4] == crc_calc) {
-          Serial.println("Received valid calibrate command");
+//     if (index >= 5) {
+//       if (buffer[0] == 0xFA && buffer[1] == 0x01 && buffer[2] == 0x80) {
+//         uint8_t crc_calc = (buffer[0] + buffer[1] + buffer[2] + buffer[3]) & 0xFF;
+//         if (buffer[4] == crc_calc) {
+//           Serial.println("Received valid calibrate command");
 
-          // Response: FB 01 80 01 CRC
-          uint8_t reply[] = { 0xFB, 0x01, 0x80, 0x01 };
-          uint8_t crc = 0;
-          for (int i = 0; i < 4; i++) crc += reply[i];
+//           // Response: FB 01 80 01 CRC
+//           uint8_t reply[] = { 0xFB, 0x01, 0x80, 0x01 };
+//           uint8_t crc = 0;
+//           for (int i = 0; i < 4; i++) crc += reply[i];
 
-          enableTransmit();
-          rs485.write(reply, 4);
-          rs485.write(crc & 0xFF);
-          rs485.flush();
-          disableTransmit();
+//           enableTransmit();
+//           rs485.write(reply, 4);
+//           rs485.write(crc & 0xFF);
+//           rs485.flush();
+//           disableTransmit();
 
-          Serial.println("Sent: FB 01 80 01 CRC");
-        } else {
-          Serial.println("Invalid CRC");
-        }
-        index = 0;
-      }
-    }
+//           Serial.println("Sent: FB 01 80 01 CRC");
+//         } else {
+//           Serial.println("Invalid CRC");
+//         }
+//         index = 0;
+//       }
+//     }
 
-    if (index >= 10) index = 0;
-  }
-}
-#endif
+//     if (index >= 10) index = 0;
+//   }
+// }
+// #endif
 
 // === SETUP ===
 void setup() {
@@ -105,24 +110,28 @@ void setup() {
 
   Serial.print("Booted as: ");
   Serial.println(ROLE_NAME);
+  delay(2000);
 }
 
 // === LOOP ===
 void loop() {
 #ifdef ROLE_MASTER
-  sendCalibrateCommand(0x01);  // Send to slave addr 0x01
-  delay(100);                  // Wait for reply
-  readReply();
-  delay(2000);                 // Send every 2 seconds
-
-#elif defined(ROLE_SLAVE1)
-  handleRequest();
-  delay(10);  // Give time for loop
+  if (millis() - lastSendTime > 5000) {
+    lastSendTime = millis();
+    sendCalibrateCommand(0x01);  // Send to slave addr 0x01
+    // readReply();
+  }
 #endif
+// #elif defined(ROLE_SLAVE1)
+//   handleRequest();
+//   delay(10);  // Give time for loop
+// #endif
 
-  // Optional LED heartbeat
-  static bool led = false;
-  digitalWrite(LED_BUILTIN, led ? HIGH : LOW);
-  led = !led;
-  delay(500);
+  if (millis() - heartbeatTime > 500) {
+    heartbeatTime = millis();
+    static bool led = false;
+    digitalWrite(LED_BUILTIN, led ? HIGH : LOW);
+    led = !led;
+  }
+  delay(100);
 }
