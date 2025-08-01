@@ -155,6 +155,52 @@ void readEncoderAngleResponse() {
   }
 }
 
+void setEnableMode(uint8_t addr, uint8_t mode) {
+  if (mode > 0x02) {
+    Serial.println("Invalid EN mode! Must be 0x00 (Low), 0x01 (High), or 0x02 (Hold).");
+    return;
+  }
+
+  uint8_t packet[] = { 0xFA, addr, 0x85, mode };
+  uint8_t crc = 0;
+  for (int i = 0; i < 4; i++) crc += packet[i];
+
+  enableTransmit();
+  rs485.write(packet, 4);
+  rs485.write(crc & 0xFF);
+  rs485.flush();
+  disableTransmit();
+
+  Serial.print("Sent EN Mode Command to 0x");
+  Serial.print(addr, HEX);
+  Serial.print(" → Mode: 0x");
+  Serial.println(mode, HEX);
+
+  // Wait for response (FB 01 85 status CRC)
+  unsigned long timeout = millis() + 20;
+  while (millis() < timeout && rs485.available() < 5) {
+    // wait
+  }
+
+  if (rs485.available() >= 5) {
+    uint8_t resp[5];
+    for (int i = 0; i < 5; i++) resp[i] = rs485.read();
+
+    uint8_t resp_crc = 0;
+    for (int i = 0; i < 4; i++) resp_crc += resp[i];
+
+    if (resp[0] == 0xFB && resp[1] == addr && resp[2] == 0x85 && (resp_crc & 0xFF) == resp[4]) {
+      Serial.print("EN Mode Set Result: ");
+      Serial.println(resp[3] == 1 ? "Success" : "Failure");
+    } else {
+      Serial.println("Invalid EN Mode response or CRC mismatch.");
+    }
+  } else {
+    Serial.println("Timeout waiting for EN Mode response.");
+  }
+}
+
+
 #endif
 
 // === SETUP ===
@@ -168,8 +214,8 @@ void setup() {
 
   Serial.print("Booted as: ");
   Serial.println(ROLE_NAME);
-  sendCalibrateCommand(0x01);  // Send to slave addr 0x01
-  delay(10000);
+  // sendCalibrateCommand(0x01);  // Send to slave addr 0x01
+  // delay(10000);
 }
 
 // === LOOP ===
@@ -184,12 +230,15 @@ void loop() {
     //   sendDriveCommand(0x01, 320, true);  // Send to slave addr 0x01, 320 RPM, CW
     //   tempDir = true;
     // }
-    requestEncoderAngle(0x01);  // Request encoder position from slave addr 0x01
-    delay(50);
-    readEncoderAngleResponse();  // Read and process the encoder position response
+    // requestEncoderAngle(0x01);  // Request encoder position from slave addr 0x01
+    // delay(50);
+    // readEncoderAngleResponse();  // Read and process the encoder position response
+    setEnableMode(0x01, tempDir ? 0x01 : 0x00);  // Set enable mode to High for slave addr 0x01
+    digitalWrite(LED_BUILTIN, tempDir ? HIGH : LOW);  // Toggle LED state
+    tempDir = !tempDir;
   }
 
-  heartbeat(500);
+  //heartbeat(500);
 
 #else
   #error "Unknown Role: " ROLE_NAME
