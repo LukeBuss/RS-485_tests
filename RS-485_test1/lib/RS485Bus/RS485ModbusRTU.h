@@ -17,6 +17,8 @@ public:
 
   void begin(unsigned long baud = 38400);
   void setDebug(Stream* debugStream);
+  void enableDebug(bool enable = true) { debugEnabled = enable; }
+  bool isDebugEnabled() const { return debugEnabled; }
   void printBytes(const uint8_t* data, size_t len);
 
   void sendRequest(const uint8_t* data, size_t len);
@@ -33,6 +35,7 @@ private:
 
   uint8_t derePin;
   Stream* debugOut;
+  bool debugEnabled = false;
   unsigned long charTimeMicros;
 
   void enableTransmit();

@@ -29,6 +29,7 @@ void RS485ModbusRTU::setDebug(Stream* debugStream) {
 }
 
 void RS485ModbusRTU::printBytes(const uint8_t* data, size_t len) {
+  if (!debugEnabled || !debugOut) return;
   for (size_t i = 0; i < len; i++) {
     Serial.print("0x");
     if (data[i] < 0x10) Serial.print("0");
@@ -74,7 +75,7 @@ void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
 
   enableReceive();
 
-  if (debugOut) {
+  if (debugEnabled && debugOut) {
     debugOut->print(F("[ModbusTX] "));
     printBytes(data, len);
     debugOut->print("CRC=0x"); debugOut->println(crc, HEX);
@@ -86,7 +87,7 @@ size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxLen) {
   unsigned long lastByteTime = millis();
   unsigned long timeout = millis();
 
-  while ((millis() - timeout < 100) && count < maxLen) {
+  while ((millis() - timeout < 10) && count < maxLen) {
     if (serial.available()) {
       buffer[count++] = serial.read();
       lastByteTime = millis();
@@ -95,7 +96,7 @@ size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxLen) {
     }
   }
 
-  if (debugOut && count > 0) {
+  if (debugEnabled && debugOut && count > 0) {
     debugOut->print(F("[ModbusRX] "));
     printBytes(buffer, count);
     debugOut->println();

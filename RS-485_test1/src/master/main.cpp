@@ -13,11 +13,13 @@ RS485ModbusRTU bus(Serial2, DE_RE_PIN);
 
 unsigned long lastSendTime = 0;
 unsigned long start = micros();
+unsigned long totalTime = micros();
 
 void setup() {
   Serial.begin(SERIAL_SPEED);
   bus.begin();
   bus.setDebug(&Serial);
+  bus.enableDebug(false);
 
   Serial.println("Master ready: sending ADD commands over RS485 Modbus RTU");
 }
@@ -36,10 +38,12 @@ void loop() {
   if (len > 0) {
     if (len >= 5 && response[0] == 0x01 && response[1] == 0x03 && response[2] == 0x02) {
       uint16_t sum = (response[3] << 8) | response[4];
+
+      totalTime = micros() - start;
       Serial.print("Received sum from slave: ");
       Serial.println(sum);
       Serial.print("Time taken: ");
-      Serial.print(micros() - start);
+      Serial.print(totalTime);
       Serial.println(" microseconds");
     } else {
       Serial.println("Invalid response: ");

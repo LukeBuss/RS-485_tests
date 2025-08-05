@@ -17,6 +17,7 @@ void setup() {
   Serial.begin(SERIAL_SPEED);
   bus.begin();
   bus.setDebug(&Serial);
+  bus.enableDebug(false);
 
   Serial.println("Slave 1 ready: waiting for ADD commands over RS485 Modbus RTU");
 }
@@ -27,6 +28,6 @@ void loop() {
 
   if (len >= 3 && buffer[0] == SLAVE_ID && buffer[1] == 0x03) {
     handleFunction03_Add(bus, buffer, len);
-      Serial.println();
+    //Serial.println();
   }
 }
