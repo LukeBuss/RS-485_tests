@@ -6,7 +6,7 @@
 #include "Slave1Functions.h"
 
 #ifdef TARGET_NANO
-RS485ModbusRTU bus(RS485_RX, RS485_TX, DE_RE_PIN);
+RS485ModbusRTU bus(DE_RE_PIN);
 #else
 RS485ModbusRTU bus(Serial2, DE_RE_PIN);
 #endif

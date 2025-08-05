@@ -6,12 +6,13 @@
 #include "MasterFunctions.h"
 
 #ifdef TARGET_NANO
-RS485ModbusRTU bus(RS485_RX, RS485_TX, DE_RE_PIN);
+RS485ModbusRTU bus(DE_RE_PIN);
 #else
 RS485ModbusRTU bus(Serial2, DE_RE_PIN);
 #endif
 
 unsigned long lastSendTime = 0;
+unsigned long start = micros();
 
 void setup() {
   Serial.begin(SERIAL_SPEED);
@@ -24,6 +25,7 @@ void setup() {
 void loop() {
   if (millis() - lastSendTime > 1000) {
     lastSendTime = millis();
+    start = micros();
     uint8_t values[] = { 4, 5, 6 }; // expected sum = 15
     sendAddCommand(bus, 0x01, values, sizeof(values));
   }
@@ -36,16 +38,15 @@ void loop() {
       uint16_t sum = (response[3] << 8) | response[4];
       Serial.print("Received sum from slave: ");
       Serial.println(sum);
+      Serial.print("Time taken: ");
+      Serial.print(micros() - start);
+      Serial.println(" microseconds");
     } else {
       Serial.println("Invalid response: ");
-      for (size_t i = 0; i < len; i++) {
-        Serial.print("0x");
-        Serial.print(response[i], HEX);
-        Serial.print(" ");
-      }
+      bus.printBytes(response, len);
     }
     Serial.println();
   }
 
-  delay(100);
+  delay(1);
 }

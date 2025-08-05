@@ -2,8 +2,8 @@
 #include "RS485ModbusRTU.h"
 
 #ifdef TARGET_NANO
-RS485ModbusRTU::RS485ModbusRTU(uint8_t rx, uint8_t tx, uint8_t derePin)
-  : serial(rx, tx), derePin(derePin), debugOut(nullptr) {}
+RS485ModbusRTU::RS485ModbusRTU(uint8_t derePin)
+  : derePin(derePin), debugOut(nullptr) {}
 #else
 RS485ModbusRTU::RS485ModbusRTU(HardwareSerial& serialPort, uint8_t derePin)
   : serial(serialPort), derePin(derePin), debugOut(nullptr) {}
@@ -11,22 +11,40 @@ RS485ModbusRTU::RS485ModbusRTU(HardwareSerial& serialPort, uint8_t derePin)
 
 void RS485ModbusRTU::begin(unsigned long baud) {
   pinMode(derePin, OUTPUT);
-  digitalWrite(derePin, LOW);
+  enableReceive();
+
+#ifdef TARGET_NANO
+  serial.begin(baud);  // AltSoftSerial fixed pins
+#else
   serial.begin(baud);
-  charTimeMicros = (1000000UL * 11) / baud; // 11 bits per character
+#endif
+
+  // 1 character time in microseconds = 11 bits / baud rate * 1e6
+  charTimeMicros = (11UL * 1000000UL) / baud;
 }
+
 
 void RS485ModbusRTU::setDebug(Stream* debugStream) {
   debugOut = debugStream;
 }
 
+void RS485ModbusRTU::printBytes(const uint8_t* data, size_t len) {
+  for (size_t i = 0; i < len; i++) {
+    Serial.print("0x");
+    if (data[i] < 0x10) Serial.print("0");
+    Serial.print(data[i], HEX);
+    Serial.print(" ");
+  }
+}
+
+
 void RS485ModbusRTU::enableTransmit() {
   digitalWrite(derePin, HIGH);
-  delayMicroseconds(100);
+  delayMicroseconds(charTimeMicros);  // Optional safety delay
 }
 
 void RS485ModbusRTU::enableReceive() {
-  delayMicroseconds(100);
+  delayMicroseconds(charTimeMicros);  // Optional flush delay
   digitalWrite(derePin, LOW);
 }
 
@@ -58,9 +76,7 @@ void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
 
   if (debugOut) {
     debugOut->print(F("[ModbusTX] "));
-    for (size_t i = 0; i < len; ++i) {
-      debugOut->print("0x"); debugOut->print(data[i], HEX); debugOut->print(" ");
-    }
+    printBytes(data, len);
     debugOut->print("CRC=0x"); debugOut->println(crc, HEX);
   }
 }
@@ -81,9 +97,7 @@ size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxLen) {
 
   if (debugOut && count > 0) {
     debugOut->print(F("[ModbusRX] "));
-    for (size_t i = 0; i < count; ++i) {
-      debugOut->print("0x"); debugOut->print(buffer[i], HEX); debugOut->print(" ");
-    }
+    printBytes(buffer, count);
     debugOut->println();
   }
 
