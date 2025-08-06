@@ -26,8 +26,11 @@ void loop() {
   uint8_t buffer[64];
   size_t len = bus.receiveResponse(buffer, sizeof(buffer));
 
-  if (len >= 3 && buffer[0] == SLAVE_ID && buffer[1] == 0x03) {
-    handleFunction03_Add(bus, buffer, len);
-    //Serial.println();
+  // if (len >= 3 && buffer[0] == SLAVE_ID && buffer[1] == 0x03) {
+  //   handleFunction03_Add(bus, buffer, len);
+  //   //Serial.println();
+  // }
+  if (len >= 2 && buffer[0] == SLAVE_ID && buffer[1] == 0x04) {
+    handleFunction04_Location(bus, buffer, len);
   }
 }

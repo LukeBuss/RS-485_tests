@@ -15,3 +15,11 @@ inline void sendAddCommand(RS485ModbusRTU& bus, uint8_t slaveID, const uint8_t* 
 
   bus.sendRequest(packet, 3 + count);
 }
+
+inline void sendRequestLocation(RS485ModbusRTU& bus, uint8_t slaveID) {
+  uint8_t packet[2];
+  packet[0] = slaveID;
+  packet[1] = 0x04;       // Custom LOCATION function
+
+  bus.sendRequest(packet, sizeof(packet));
+}
