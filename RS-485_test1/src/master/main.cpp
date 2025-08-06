@@ -27,28 +27,43 @@ void setup() {
 void loop() {
   if (millis() - lastSendTime > 1000) {
     lastSendTime = millis();
-    start = micros();
+
+    // Step timing variables
+    unsigned long t1 = micros();
+    
     uint8_t values[] = { 4, 5, 6 }; // expected sum = 15
     sendAddCommand(bus, 0x01, values, sizeof(values));
-  }
 
-  uint8_t response[16];
-  size_t len = bus.receiveResponse(response, sizeof(response));
+    unsigned long t2 = micros();  // after send
 
-  if (len > 0) {
-    if (len >= 5 && response[0] == 0x01 && response[1] == 0x03 && response[2] == 0x02) {
-      uint16_t sum = (response[3] << 8) | response[4];
+    uint8_t response[16];
+    size_t len = bus.receiveResponse(response, sizeof(response));
 
-      totalTime = micros() - start;
-      Serial.print("Received sum from slave: ");
-      Serial.println(sum);
-      Serial.print("Time taken: ");
-      Serial.print(totalTime);
-      Serial.println(" microseconds");
+    unsigned long t3 = micros();  // after receive
+
+    if (len > 0) {
+      if (len >= 5 && response[0] == 0x01 && response[1] == 0x03 && response[2] == 0x02) {
+        uint16_t sum = (response[3] << 8) | response[4];
+
+        Serial.print("Received sum from slave: ");
+        Serial.println(sum);
+        Serial.print("Send time: ");
+        Serial.print(t2 - t1);
+        Serial.println(" µs");
+        Serial.print("Receive time: ");
+        Serial.print(t3 - t2);
+        Serial.println(" µs");
+        Serial.print("Total time: ");
+        Serial.print(t3 - t1);
+        Serial.println(" µs");
+      } else {
+        Serial.println("Invalid response:");
+        bus.printBytes(response, len);
+      }
     } else {
-      Serial.println("Invalid response: ");
-      bus.printBytes(response, len);
+      Serial.println("No response or timeout");
     }
+
     Serial.println();
   }
 

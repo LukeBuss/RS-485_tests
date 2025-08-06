@@ -65,7 +65,7 @@ uint16_t RS485ModbusRTU::computeCRC(const uint8_t* data, size_t len) {
 
 void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
   enableTransmit();
-  delayMicroseconds(100);
+  //delayMicroseconds(100);
 
   uint16_t crc = computeCRC(data, len);
   serial.write(data, len);
@@ -84,14 +84,14 @@ void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
 
 size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxLen) {
   size_t count = 0;
-  unsigned long lastByteTime = millis();
-  unsigned long timeout = millis();
+  unsigned long lastByteTime = micros();
+  unsigned long timeout = micros();
 
-  while ((millis() - timeout < 10) && count < maxLen) {
+  while ((micros() - timeout < 10000) && count < maxLen) {
     if (serial.available()) {
       buffer[count++] = serial.read();
-      lastByteTime = millis();
-    } else if (millis() - lastByteTime > (charTimeMicros * 3.5) / 1000) {
+      lastByteTime = micros();
+    } else if (micros() - lastByteTime > (charTimeMicros * 3.5)) {
       break; // silent interval
     }
   }

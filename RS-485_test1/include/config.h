@@ -5,7 +5,7 @@
   #define SERIAL_SPEED 9600   // fallback if not defined in platformio.ini
 #endif
 
-#define RS485_BAUD 38400
+#define RS485_BAUD 115200 //38400 57600 74880 115200 250000 500000
 
 // ===== Role String Helper =====
 #if defined(ROLE_MASTER)
