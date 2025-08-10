@@ -1,12 +1,15 @@
-// RS485ModbusRTU.cpp
 #include "RS485ModbusRTU.h"
+
+#ifdef ARDUINO_ARCH_ESP32
+  #include "driver/uart.h"
+#endif
 
 #ifdef TARGET_NANO
 RS485ModbusRTU::RS485ModbusRTU(rs485_byte derePin)
-  : derePin(derePin), debugOut(nullptr) {}
+  : derePin(derePin) {}
 #else
 RS485ModbusRTU::RS485ModbusRTU(HardwareSerial& serialPort, rs485_byte derePin)
-  : serial(serialPort), derePin(derePin), debugOut(nullptr) {}
+  : serial(serialPort), derePin(derePin) {}
 #endif
 
 void RS485ModbusRTU::begin(unsigned long baud) {
@@ -16,11 +19,29 @@ void RS485ModbusRTU::begin(unsigned long baud) {
 #ifdef TARGET_NANO
   serial.begin(baud);   // AltSoftSerial (fixed pins on Nano)
 #else
-  serial.begin(baud);   // HardwareSerial on nRF / others
+  serial.begin(baud);   // HardwareSerial (nRF / ESP32)
 #endif
 
-  // ≈ 11 bits per character (start + 8 data + stop + cushion)
+  // ~11 bits per character (start + 8 data + stop + cushion)
   charTimeMicros = (11UL * 1000000UL) / baud;
+}
+
+bool RS485ModbusRTU::enableHardwareRS485(int rtsPin) {
+#if defined(ARDUINO_ARCH_ESP32) || defined(TARGET_ESP32)
+  uart_port_t port = UART_NUM_1;
+  if      (&serial == &Serial)  port = UART_NUM_0;
+  else if (&serial == &Serial1) port = UART_NUM_1;
+  else if (&serial == &Serial2) port = UART_NUM_2;
+
+  if (uart_set_mode(port, UART_MODE_RS485_HALF_DUPLEX) != ESP_OK) return false;
+  if (rtsPin >= 0) {
+    if (uart_set_pin(port, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, rtsPin, UART_PIN_NO_CHANGE) != ESP_OK) return false;
+  }
+  return true;
+#else
+  (void)rtsPin; // unused
+  return false;
+#endif
 }
 
 void RS485ModbusRTU::setDebug(Stream* debugStream) {
@@ -68,7 +89,11 @@ void RS485ModbusRTU::sendRequest(const rs485_byte* data, size_t len) {
   serial.write(data, len);
   serial.write((rs485_byte)(crc & 0xFF));        // CRC low
   serial.write((rs485_byte)((crc >> 8) & 0xFF)); // CRC high
-  serial.flush();                                // wait for TX to fully shift
+#if defined(ARDUINO_ARCH_ESP32) || defined(TARGET_ESP32)
+  serial.flush(true);  // wait for HW FIFO empty & last byte shifted
+#else
+  serial.flush();
+#endif
 
   enableReceive();
 
@@ -84,7 +109,7 @@ size_t RS485ModbusRTU::receiveResponse(rs485_byte* buffer, size_t maxLen) {
   size_t count = 0;
   unsigned long lastByteTime = micros();
   const unsigned long overallStart = micros();
-  const unsigned long overallTimeout = 10000UL; // ~10 ms total window
+  const unsigned long overallTimeout = 10000UL; // ~10 ms window
 
   while ((micros() - overallStart) < overallTimeout && count < maxLen) {
     if (serial.available()) {
@@ -94,10 +119,7 @@ size_t RS485ModbusRTU::receiveResponse(rs485_byte* buffer, size_t maxLen) {
         lastByteTime = micros();
       }
     } else {
-      // break after 3.5 character times of silence
-      if ((micros() - lastByteTime) > (unsigned long)(charTimeMicros * 3.5f)) {
-        break;
-      }
+      if ((micros() - lastByteTime) > (unsigned long)(charTimeMicros * 3.5f)) break; // 3.5 char idle
     }
   }
 

@@ -1,93 +1,61 @@
 // src/master/main.cpp
 #include <Arduino.h>
-#include <RS485ModbusRTU.h>
 #include "config.h"
 #include "pinmap.h"
-#include "MasterFunctions.h"
+#include "RS485ModbusRTU.h"
 
-#ifdef TARGET_NANO
-RS485ModbusRTU bus(DE_RE_PIN);
+#if defined(TARGET_NANO)
+  RS485ModbusRTU bus(DE_RE_PIN);
 #else
-RS485ModbusRTU bus(Serial2, DE_RE_PIN);
+  RS485ModbusRTU bus(RS485_PORT, DE_RE_PIN);
 #endif
 
-unsigned long lastSendTime = 0;
-unsigned long start = micros();
-unsigned long totalTime = micros();
+static unsigned long lastPing = 0;
 
-void printTiming(unsigned long t1, unsigned long t2, unsigned long t3) {
-  Serial.print("Send time: ");
-  Serial.print(t2 - t1);
-  Serial.println(" µs");
-  Serial.print("Receive time: ");
-  Serial.print(t3 - t2);
-  Serial.println(" µs");
-  Serial.print("Total time: ");
-  Serial.print(t3 - t1);
-  Serial.println(" µs");
+ void sendLocationRequest(uint8_t slave) {
+  uint8_t frame[2] = { slave, 0x04 }; // function 0x04: request location
+  bus.sendRequest(frame, sizeof(frame));
 }
 
 void setup() {
-  Serial.begin(SERIAL_SPEED);
-  bus.begin();
-  bus.setDebug(&Serial);
-  bus.enableDebug(false);
+  Serial.begin(115200);
+  delay(50);
 
-  Serial.println("Master ready: sending ADD commands over RS485 Modbus RTU");
+#if defined(ARDUINO_ARCH_ESP32) || defined(TARGET_ESP32)
+  // Optional: set pins here if not default, e.g.:
+  // RS485_PORT.begin(SERIAL_SPEED, SERIAL_8N1, RX_PIN, TX_PIN);
+#endif
+
+  bus.begin(SERIAL_SPEED);
+#if RS485_DEBUG
+  bus.setDebug(&Serial);
+  bus.enableDebug(true);
+#endif
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(TARGET_ESP32)
+  // Optional: enable hardware RS485 so RTS drives DE automatically
+  // bus.enableHardwareRS485(RS485_RTS);
+#endif
 }
 
 void loop() {
-  if (millis() - lastSendTime > 1000) {
-    lastSendTime = millis();
-    
-    // uint8_t values[16];
-    // for (uint8_t i = 0; i < 16; ++i) {
-    //   values[i] = 1; // or any number
-    // }
-
-    // Step timing variables
-    unsigned long t1 = micros();
-
-    // sendAddCommand(bus, 0x01, values, sizeof(values));
-    sendRequestLocation(bus, 0x01);
-
-    unsigned long t2 = micros();  // after send
-
-    // uint8_t response[16];
-    // size_t len = bus.receiveResponse(response, sizeof(response));
-
-    uint8_t response[64];
-    size_t len = bus.receiveResponse(response, sizeof(response));
-
-
-    unsigned long t3 = micros();  // after receive
-
-    if (len > 0) {
-      // if (len >= 5 && response[0] == 0x01 && response[1] == 0x03 && response[2] == 0x02) {
-      //   uint16_t sum = (response[3] << 8) | response[4];
-      //   Serial.print("Received sum from slave: ");
-      //   Serial.println(sum);
-
-      if (len >= 9 && response[0] == 0x01 && response[1] == 0x04 && response[2] == 0x06) {
-        uint16_t x = (response[3] << 8) | response[4];
-        uint16_t y = (response[5] << 8) | response[6];
-        uint16_t heading = (response[7] << 8) | response[8];
-
-        Serial.print("X: "); Serial.print(x);
-        Serial.print("  Y: "); Serial.print(y);
-        Serial.print("  Heading: "); Serial.println(heading);
-
-        printTiming(t1, t2, t3);
-      } else {
-        Serial.println("Invalid response:");
-        bus.printBytes(response, len);
-      }
-    } else {
-      Serial.println("No response or timeout");
-    }
-
-    Serial.println();
+  // Periodically ping the slave for its location
+  if (millis() - lastPing >= 200) { // every 200ms
+    sendLocationRequest(SLAVE_ID);
+    lastPing = millis();
   }
 
-  delay(1);
+  // Read any incoming response
+  uint8_t rx[RS485_MAX_FRAME];
+  size_t n = bus.receiveResponse(rx, sizeof(rx));
+  if (n >= 8 && rx[0] == SLAVE_ID && rx[1] == 0x04) {
+    // Expecting 3x 16-bit big-endian values: x, y, heading*100
+    int16_t x = (int16_t)((rx[3] << 8) | rx[4]);
+    int16_t y = (int16_t)((rx[5] << 8) | rx[6]);
+    uint16_t h = (uint16_t)((rx[7] << 8) | rx[8]);
+    float heading = h / 100.0f;
+    Serial.print(F("LOC x=")); Serial.print(x);
+    Serial.print(F(" y=")); Serial.print(y);
+    Serial.print(F(" h=")); Serial.println(heading, 2);
+  }
 }
