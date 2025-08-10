@@ -1,5 +1,8 @@
 #include <Arduino.h>
-#include <Adafruit_TinyUSB.h> // Only needed for Seeed nRF52 Boards core
+
+#ifdef nRF52_SERIES
+  #include <Adafruit_TinyUSB.h> // Only needed for Seeed nRF52 Boards core
+#endif
 
 void setup() {
   Serial.begin(SERIAL_BAUD); // Uses value from platformio.ini
