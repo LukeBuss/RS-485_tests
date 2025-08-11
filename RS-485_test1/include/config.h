@@ -1,26 +1,37 @@
 #pragma once
 
 // ===== Serial Speeds =====
-#ifndef SERIAL_SPEED
-  #define SERIAL_SPEED 9600   // fallback if not defined in platformio.ini
+#ifdef TARGET_NRF52840
+  #ifndef SERIAL_SPEED
+    #define SERIAL_SPEED 115200 // Default for nRF52840
+  #endif
+  #ifndef RS485_BAUD
+    #define RS485_BAUD 115200 //38400 57600 74880 115200 250000 500000
+  #endif
 #endif
 
-#define RS485_BAUD 115200 //38400 57600 74880 115200 250000 500000
+#ifdef TARGET_NANO
+  #ifndef SERIAL_SPEED
+    #define SERIAL_SPEED 9600   // fallback if not defined in platformio.ini
+  #endif
+  #ifndef RS485_BAUD
+    #define RS485_BAUD 115200
+  #endif
+#endif
 
-// ===== Role String Helper =====
-#if defined(ROLE_MASTER)
+#ifdef ROLE_MASTER
   #define ROLE_NAME "MASTER"
-#elif defined(ROLE_SLAVE1)
+#elif ROLE_SLAVE1
   #define ROLE_NAME "SLAVE_1"
-#elif defined(ROLE_SLAVE2)
+#elif ROLE_SLAVE2
   #define ROLE_NAME "SLAVE_2"
 #else
   #define ROLE_NAME "UNKNOWN"
 #endif
 
 // ===== Platform Detection =====
-#if defined(TARGET_ESP32)
-  #define IS_ESP32 true
-#else
-  #define IS_ESP32 false
-#endif
+// #if defined(TARGET_ESP32)
+//   #define IS_ESP32 true
+// #else
+//   #define IS_ESP32 false
+// #endif

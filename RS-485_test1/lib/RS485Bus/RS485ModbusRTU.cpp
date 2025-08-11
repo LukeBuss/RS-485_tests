@@ -25,16 +25,21 @@ void RS485ModbusRTU::begin(unsigned long baud) {
 
 
 void RS485ModbusRTU::setDebug(Stream* debugStream) {
+  if (!debugStream || !debugEnabled) {
+    debugEnabled = false;
+    debugOut = nullptr;
+    return;
+  }
   debugOut = debugStream;
 }
 
 void RS485ModbusRTU::printBytes(const uint8_t* data, size_t len) {
   if (!debugEnabled || !debugOut) return;
   for (size_t i = 0; i < len; i++) {
-    Serial.print("0x");
-    if (data[i] < 0x10) Serial.print("0");
-    Serial.print(data[i], HEX);
-    Serial.print(" ");
+    debugOut->print("0x");
+    if (data[i] < 0x10) debugOut->print("0");
+    debugOut->print(data[i], HEX);
+    debugOut->print(" ");
   }
 }
 
@@ -82,14 +87,14 @@ void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
   }
 }
 
-size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxLen) {
+size_t RS485ModbusRTU::receiveResponse(uint8_t* packet, size_t maxLen) {
   size_t count = 0;
   unsigned long lastByteTime = micros();
   unsigned long timeout = micros();
 
   while ((micros() - timeout < 10000) && count < maxLen) {
     if (serial.available()) {
-      buffer[count++] = serial.read();
+      packet[count++] = serial.read();
       lastByteTime = micros();
     } else if (micros() - lastByteTime > (charTimeMicros * 3.5)) {
       break; // silent interval
@@ -98,7 +103,7 @@ size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxLen) {
 
   if (debugEnabled && debugOut && count > 0) {
     debugOut->print(F("[ModbusRX] "));
-    printBytes(buffer, count);
+    printBytes(packet, count);
     debugOut->println();
   }
 

@@ -6,18 +6,31 @@
 #include "Slave1Functions.h"
 
 #ifdef TARGET_NANO
-RS485ModbusRTU bus(DE_RE_PIN);
-#else
-RS485ModbusRTU bus(Serial2, DE_RE_PIN);
+  RS485ModbusRTU bus(DE_RE_PIN);
+#elif TARGET_NRF52840
+  RS485ModbusRTU bus(Serial1, DE_RE_PIN);
+  #include <Adafruit_TinyUSB.h>
 #endif
 
 const uint8_t SLAVE_ID = 0x01;
 
 void setup() {
   Serial.begin(SERIAL_SPEED);
-  bus.begin();
+#ifdef TARGET_NRF52840
+  // while (!Serial) { delay(10); } // let USB enumerate
+#endif
+
+#ifdef TARGET_NRF52840
+  Serial1.begin(RS485_BAUD); // For nRF52840, Serial1 is used
+  while (!Serial1) { delay(10); } // let USB enumerate
+#endif
+
+  bus.begin(RS485_BAUD);
   bus.setDebug(&Serial);
-  bus.enableDebug(false);
+  bus.enableDebug(true);
+
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_GREEN, LOW); // Start with LED on
 
   Serial.println("Slave 1 ready: waiting for ADD commands over RS485 Modbus RTU");
 }

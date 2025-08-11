@@ -22,7 +22,7 @@ public:
   void printBytes(const uint8_t* data, size_t len);
 
   void sendRequest(const uint8_t* data, size_t len);
-  size_t receiveResponse(uint8_t* buffer, size_t maxLen);
+  size_t receiveResponse(uint8_t* packet, size_t maxLen);
 
   uint16_t computeCRC(const uint8_t* data, size_t len); // exposed for use outside
 
