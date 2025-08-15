@@ -1,70 +1,95 @@
 #include <Arduino.h>
-#include <RS485ModbusRTU.h>
-#include "config.h"
-#include "pinmap.h"
-#include "MasterFunctions.h"
+#include "driver/uart.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_idf_version.h"
 
-#ifdef TARGET_ESP32S3
-RS485ModbusRTU bus(Serial2, DE_RE_PIN);
-#else
-  #error "Select TARGET_ESP32S3 in build_flags"
-#endif
+// Choose a UART that Arduino isn't using. We'll use UART1 here.
+static constexpr uart_port_t PORT  = UART_NUM_1;
 
-void setup() {
-  pinMode(DE_RE_PIN, OUTPUT);
-  digitalWrite(DE_RE_PIN, LOW);               // default to receive
+// Your pins on the XIAO S3:
+static constexpr int PIN_TX  = D7;  // to MAX3485 DI
+static constexpr int PIN_RX  = D8;  // from MAX3485 RO
+static constexpr int PIN_RTS = D9;  // to MAX3485 DE+!RE (tied together)
 
-  Serial.begin(SERIAL_SPEED);
-  delay(200);
+// Baud for the RS-485 bus
+static constexpr int BAUD = 1000000; // 1 Mbps (go lower first if debugging)
 
-  bus.begin(RS485_BAUD);
-  bus.setDebug(&Serial);
-  bus.enableDebug(true);
+void rs485_begin()
+{
+  // 1) Configure UART parameters
+  uart_config_t cfg{};
+  cfg.baud_rate  = BAUD;
+  cfg.data_bits  = UART_DATA_8_BITS;
+  cfg.parity     = UART_PARITY_DISABLE;
+  cfg.stop_bits  = UART_STOP_BITS_1;
+  cfg.flow_ctrl  = UART_HW_FLOWCTRL_DISABLE;
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);             // turn on LED
+  #if defined(UART_SCLK_DEFAULT)
+    cfg.source_clk = UART_SCLK_DEFAULT;    // IDF 5.x style
+  #elif defined(UART_SCLK_APB)
+    cfg.source_clk = UART_SCLK_APB;        // IDF 4.x style
+  #else
+    // Safe fallback: most chips default to APB when 0
+    cfg.source_clk = (uart_sclk_t)0;
+  #endif
 
-  Serial.println("\n[MASTER] ESP32-S3 ready");
-  Serial.print("ROLE: "); Serial.println(ROLE_NAME);
+  ESP_ERROR_CHECK(uart_param_config(PORT, &cfg));
+
+
+  // 2) Map the pins (RTS will be used for DE/!RE)
+  ESP_ERROR_CHECK(uart_set_pin(PORT, PIN_TX, PIN_RX, PIN_RTS, UART_PIN_NO_CHANGE));
+
+  // 3) Install the driver (set RX/TX buffers; no event queue needed)
+  const int RX_BUF = 512;
+  const int TX_BUF = 512;
+  ESP_ERROR_CHECK(uart_driver_install(PORT, RX_BUF, TX_BUF, 0, nullptr, 0));
+
+  // 4) Enable RS-485 half-duplex mode (auto toggles RTS during TX)
+  ESP_ERROR_CHECK(uart_set_mode(PORT, UART_MODE_RS485_HALF_DUPLEX));
+
+  // Optional: set an RX idle timeout (counts of character times) to end frames
+  ESP_ERROR_CHECK(uart_set_rx_timeout(PORT, 4));  // ~3.5 chars
 }
 
-static void printTiming(unsigned long t1, unsigned long t2, unsigned long t3) {
-  Serial.print("TX time(us): "); Serial.print(t1);
-  Serial.print("  RX wait(us): "); Serial.print(t2);
-  Serial.print("  RX frame(us): "); Serial.println(t3);
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+  Serial.println("\n[IDF RS485 demo]");
+
+  rs485_begin();
+
+#ifdef ROLE_TX
+  Serial.println("Role: TX (sender)");
+#else
+  Serial.println("Role: RX (receiver)");
+#endif
 }
 
 void loop() {
-  const uint8_t SLAVE_ID = 0x01;
+#ifdef ROLE_TX
+  static uint16_t counter = 0;
+  uint8_t frame[6] = { 0x55, 0xAA, uint8_t(counter>>8), uint8_t(counter), 'H', 'I' };
+  // Just write; IDF toggles DE/!RE on RTS for you
+  int n = uart_write_bytes(PORT, (const char*)frame, sizeof(frame));
+  Serial.printf("TX #%u (%d bytes)\n", counter, n);
+  counter++;
+  delay(100);
 
-  // Example: request location (function 0x04)
-  uint8_t pkt[2] = { SLAVE_ID, 0x04 };
-
-  unsigned long t0 = micros();
-  bus.sendRequest(pkt, sizeof(pkt));
-  unsigned long t1 = micros();
-
-  uint8_t resp[64];
-  size_t len = bus.receiveResponse(resp, sizeof(resp), 50);
-  unsigned long t2 = micros();
-
-  if (len >= 2 && resp[0] == SLAVE_ID && resp[1] == 0x04 && len == 2 + 1 + 6) {
-    // [ID][FC][ByteCount=6][xH][xL][yH][yL][hH][hL]
-    int16_t x = (int16_t)((resp[3] << 8) | resp[4]);
-    int16_t y = (int16_t)((resp[5] << 8) | resp[6]);
-    uint16_t heading = (uint16_t)((resp[7] << 8) | resp[8]);
-
-    Serial.print("X: "); Serial.print(x);
-    Serial.print("  Y: "); Serial.print(y);
-    Serial.print("  H(deg*100): "); Serial.println(heading);
-
-    printTiming(t1 - t0, (t2 - t1), 0UL);
-  } else if (len > 0) {
-    Serial.println("Invalid response:");
-    bus.printBytes(resp, len);
-  } else {
-    Serial.println("No response / timeout");
+#else   // ROLE_RX
+  uint8_t buf[128];
+  // Read whatever arrived; timeout 50 ms
+  int n = uart_read_bytes(PORT, buf, sizeof(buf), pdMS_TO_TICKS(50));
+  if (n > 0) {
+    // Look for our simple 0x55 0xAA header
+    for (int i = 0; i < n - 5; ++i) {
+      if (buf[i] == 0x55 && buf[i+1] == 0xAA) {
+        uint16_t cnt = (uint16_t(buf[i+2]) << 8) | buf[i+3];
+        char c1 = (char)buf[i+4], c2 = (char)buf[i+5];
+        Serial.printf("RX OK  counter=%u  text=%c%c\n", cnt, c1, c2);
+        i += 5;
+      }
+    }
   }
-
-  delay(1000);
+#endif
 }

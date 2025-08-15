@@ -14,7 +14,7 @@
 #endif
 
 #ifdef TARGET_ESP32S3
-  #define RS485_TX 7
-  #define RS485_RX 8
-  #define DE_RE_PIN 9
+  #define RS485_TX D7
+  #define RS485_RX D8
+  #define DE_RE_PIN D9
 #endif

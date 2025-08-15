@@ -1,41 +1,40 @@
 #include <Arduino.h>
-#include <RS485ModbusRTU.h>
-#include "config.h"
-#include "pinmap.h"
-#include "Slave1Functions.h"
 
-#ifdef TARGET_ESP32S3
-RS485ModbusRTU bus(Serial2, DE_RE_PIN);
-#else
-  #error "Select TARGET_ESP32S3 in build_flags"
-#endif
+#define RS485_TX  D7   // unused but required by begin()
+#define RS485_RX  D8   // from MAX3485 RO
+#define BAUD_RS485 115200
 
 void setup() {
-  pinMode(DE_RE_PIN, OUTPUT);
-  digitalWrite(DE_RE_PIN, LOW);    // receive default
-
-  Serial.begin(SERIAL_SPEED);
+  Serial.begin(115200);
   delay(200);
 
-  bus.begin(RS485_BAUD);
-  bus.setDebug(&Serial);
-  bus.enableDebug(true);
-
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);             // turn on LED
-
-  Serial.println("\n[SLAVE_1] ESP32-S3 ready");
+  Serial2.begin(BAUD_RS485, SERIAL_8N1, RS485_RX, RS485_TX);
+  Serial.println("\n[RX-ONLY] listening. EN is hard-tied LOW.");
 }
 
 void loop() {
-  uint8_t buffer[64];
-  size_t len = bus.receiveResponse(buffer, sizeof(buffer), 50);
+  // Look for our 0x55 0xAA header and then read the rest
+  static enum { SEEK55, SEEKAA, READ4 } state = SEEK55;
+  static uint8_t buf[4];
+  static int idx = 0;
 
-  if (len >= 2 && buffer[1] == 0x04) {
-    handleFunction04_Location(bus, buffer, len);
+  while (Serial2.available()) {
+    uint8_t b = Serial2.read();
+
+    switch (state) {
+      case SEEK55: if (b == 0x55) state = SEEKAA; break;
+      case SEEKAA: if (b == 0xAA) { state = READ4; idx = 0; } else state = SEEK55; break;
+      case READ4:
+        buf[idx++] = b;
+        if (idx == 4) {
+          uint16_t cnt = (uint16_t(buf[0]) << 8) | buf[1];
+          char c1 = (char)buf[2], c2 = (char)buf[3];
+          Serial.print("RX OK  counter="); Serial.print(cnt);
+          Serial.print("  text="); Serial.print(c1); Serial.println(c2);
+          state = SEEK55;
+        }
+        break;
+    }
+    Serial.println("Read, but error :" + String(b));
   }
-  else if (len >= 3 && buffer[1] == 0x03) {
-    handleFunction03_Add(bus, buffer, len);
-  }
-  // else: ignore
 }
