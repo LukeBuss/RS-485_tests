@@ -1,12 +1,21 @@
 #pragma once
 
 // ===== Serial Speeds =====
+#ifdef TARGET_ESP32S3
+  #ifndef SERIAL_SPEED
+    #define SERIAL_SPEED 115200 // Default for ESP32S3
+  #endif
+  #ifndef RS485_BAUD
+    #define RS485_BAUD 1000000 //38400 57600 74880 115200 250000 500000 1000000
+  #endif
+#endif
+
 #ifdef TARGET_NRF52840
   #ifndef SERIAL_SPEED
     #define SERIAL_SPEED 115200 // Default for nRF52840
   #endif
   #ifndef RS485_BAUD
-    #define RS485_BAUD 115200 //38400 57600 74880 115200 250000 500000
+    #define RS485_BAUD 115200 //38400 57600 74880 115200 250000 500000 1000000
   #endif
 #endif
 

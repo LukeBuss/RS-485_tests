@@ -1,12 +1,13 @@
-// RS485ModbusRTU.cpp
 #include "RS485ModbusRTU.h"
+#include "pinmap.h"
+#include "config.h"
 
 #ifdef TARGET_NANO
 RS485ModbusRTU::RS485ModbusRTU(uint8_t derePin)
-  : derePin(derePin), debugOut(nullptr) {}
+: derePin(derePin) {}
 #else
 RS485ModbusRTU::RS485ModbusRTU(HardwareSerial& serialPort, uint8_t derePin)
-  : serial(serialPort), derePin(derePin), debugOut(nullptr) {}
+: serial(serialPort), derePin(derePin) {}
 #endif
 
 void RS485ModbusRTU::begin(unsigned long baud) {
@@ -14,23 +15,74 @@ void RS485ModbusRTU::begin(unsigned long baud) {
   enableReceive();
 
 #ifdef TARGET_NANO
-  serial.begin(baud);  // AltSoftSerial fixed pins
-#else
   serial.begin(baud);
+#else
+  // ESP32-S3: map RX/TX pins explicitly (from pinmap.h)
+  serial.begin(baud, SERIAL_8N1, RS485_RX, RS485_TX);
 #endif
 
-  // 1 character time in microseconds = 11 bits / baud rate * 1e6
-  charTimeMicros = (11UL * 1000000UL) / baud;
+  // ~11 bits per char @ N,8,1 -> compute character time
+  charTimeMicros = (unsigned long)((11.0f * 1e6f) / (float)baud);
 }
 
+void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
+  if (!data || len == 0) return;
 
-void RS485ModbusRTU::setDebug(Stream* debugStream) {
-  if (!debugStream || !debugEnabled) {
-    debugEnabled = false;
-    debugOut = nullptr;
-    return;
+  if (debugEnabled && debugOut) {
+    debugOut->print(F("[ModbusTX] "));
+    printBytes(data, len);
+    debugOut->println();
   }
-  debugOut = debugStream;
+
+  enableTransmit();
+  serial.write(data, len);
+  serial.flush();                       // wait for TX FIFO to drain
+
+  // On ESP32 Arduino, flush() waits for buffer empty; add ~1 char to clear shifter
+  delayMicroseconds(charTimeMicros + 2);
+
+  enableReceive();
+}
+
+size_t RS485ModbusRTU::receiveResponse(uint8_t* buffer, size_t maxlen, unsigned long timeoutMs) {
+  if (!buffer || maxlen == 0) return 0;
+
+  const unsigned long start = millis();
+  size_t count = 0;
+
+  // Wait for the first byte or timeout
+  while ((millis() - start) < timeoutMs) {
+    if (serial.available()) break;
+    delayMicroseconds(50);
+  }
+  if (!serial.available()) return 0; // timed out
+
+  // We got at least one byte. Now read until 3.5 char-times of silence.
+  unsigned long lastByteTime = micros();
+  const unsigned long silentGap = (unsigned long)(charTimeMicros * 3.5f);
+
+  while (true) {
+    while (serial.available()) {
+      int b = serial.read();
+      if (b < 0) break;
+      if (count < maxlen) buffer[count++] = (uint8_t)b;
+      lastByteTime = micros();
+    }
+
+    // Check for silent interval to end frame
+    if ((micros() - lastByteTime) > silentGap) break;
+
+    // Also guard overall timeout in case of noise
+    if ((millis() - start) > timeoutMs) break;
+  }
+
+  if (debugEnabled && debugOut && count > 0) {
+    debugOut->print(F("[ModbusRX] "));
+    printBytes(buffer, count);
+    debugOut->println();
+  }
+
+  return count;
 }
 
 void RS485ModbusRTU::printBytes(const uint8_t* data, size_t len) {
@@ -43,69 +95,14 @@ void RS485ModbusRTU::printBytes(const uint8_t* data, size_t len) {
   }
 }
 
-
 void RS485ModbusRTU::enableTransmit() {
-  digitalWrite(derePin, HIGH);
-  delayMicroseconds(charTimeMicros);  // Optional safety delay
+  digitalWrite(derePin, LOW);   // DE high, /RE high -> driver on, receiver off
+  // allow driver enable time (~1/4 char time is plenty)
+  delayMicroseconds(charTimeMicros / 4 + 2);
 }
 
 void RS485ModbusRTU::enableReceive() {
-  delayMicroseconds(charTimeMicros);  // Optional flush delay
-  digitalWrite(derePin, LOW);
-}
-
-uint16_t RS485ModbusRTU::computeCRC(const uint8_t* data, size_t len) {
-  uint16_t crc = 0xFFFF;
-  for (size_t i = 0; i < len; ++i) {
-    crc ^= data[i];
-    for (int j = 0; j < 8; ++j) {
-      if (crc & 0x0001)
-        crc = (crc >> 1) ^ 0xA001;
-      else
-        crc >>= 1;
-    }
-  }
-  return crc;
-}
-
-void RS485ModbusRTU::sendRequest(const uint8_t* data, size_t len) {
-  enableTransmit();
-  //delayMicroseconds(100);
-
-  uint16_t crc = computeCRC(data, len);
-  serial.write(data, len);
-  serial.write(crc & 0xFF);
-  serial.write((crc >> 8) & 0xFF);
-  serial.flush();
-
-  enableReceive();
-
-  if (debugEnabled && debugOut) {
-    debugOut->print(F("[ModbusTX] "));
-    printBytes(data, len);
-    debugOut->print("CRC=0x"); debugOut->println(crc, HEX);
-  }
-}
-
-size_t RS485ModbusRTU::receiveResponse(uint8_t* packet, size_t maxLen) {
-  size_t count = 0;
-  unsigned long lastByteTime = micros();
-  unsigned long timeout = micros();
-
-  while ((micros() - timeout < 10000) && count < maxLen) {
-    if (serial.available()) {
-      packet[count++] = serial.read();
-      lastByteTime = micros();
-    } else if (micros() - lastByteTime > (charTimeMicros * 3.5)) {
-      break; // silent interval
-    }
-  }
-
-  if (debugEnabled && debugOut && count > 0) {
-    debugOut->print(F("[ModbusRX] "));
-    printBytes(packet, count);
-    debugOut->println();
-  }
-
-  return count;
+  digitalWrite(derePin, HIGH);    // DE low, /RE low -> receiver on, driver off
+  // small guard time to ensure bus release
+  delayMicroseconds(charTimeMicros / 8 + 2);
 }

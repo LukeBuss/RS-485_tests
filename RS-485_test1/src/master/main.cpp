@@ -1,104 +1,70 @@
-// src/master/main.cpp
 #include <Arduino.h>
 #include <RS485ModbusRTU.h>
 #include "config.h"
 #include "pinmap.h"
 #include "MasterFunctions.h"
 
-#ifdef TARGET_NANO
-  RS485ModbusRTU bus(DE_RE_PIN);
-#elif TARGET_NRF52840
-  RS485ModbusRTU bus(Serial1, DE_RE_PIN);
-  #include <Adafruit_TinyUSB.h>
+#ifdef TARGET_ESP32S3
+RS485ModbusRTU bus(Serial2, DE_RE_PIN);
+#else
+  #error "Select TARGET_ESP32S3 in build_flags"
 #endif
-
-unsigned long lastSendTime = 0;
-unsigned long start = micros();
-unsigned long totalTime = micros();
-
-void printTiming(unsigned long t1, unsigned long t2, unsigned long t3) {
-  Serial.print("Send time: ");
-  Serial.print(t2 - t1);
-  Serial.println(" µs");
-  Serial.print("Receive time: ");
-  Serial.print(t3 - t2);
-  Serial.println(" µs");
-  Serial.print("Total time: ");
-  Serial.print(t3 - t1);
-  Serial.println(" µs");
-}
 
 void setup() {
-  Serial.begin(SERIAL_SPEED);
-#ifdef TARGET_NRF52840
-  while (!Serial) { delay(10); } // let USB enumerate
-#endif
+  pinMode(DE_RE_PIN, OUTPUT);
+  digitalWrite(DE_RE_PIN, LOW);               // default to receive
 
-#ifdef TARGET_NRF52840
-  Serial1.begin(RS485_BAUD); // For nRF52840, Serial1 is used
-  // while (!Serial1) { delay(10); } // let USB enumerate
-// #elif TARGET_NANO
-  // AltSoftSerial is started inside bus.begin(...)
-#endif
+  Serial.begin(SERIAL_SPEED);
+  delay(200);
 
   bus.begin(RS485_BAUD);
   bus.setDebug(&Serial);
   bus.enableDebug(true);
 
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_GREEN, LOW); // Start with LED on
+  digitalWrite(LED_BUILTIN, LOW);             // turn on LED
 
-  Serial.println("Master ready: sending ADD commands over RS485 Modbus RTU");
+  Serial.println("\n[MASTER] ESP32-S3 ready");
+  Serial.print("ROLE: "); Serial.println(ROLE_NAME);
+}
+
+static void printTiming(unsigned long t1, unsigned long t2, unsigned long t3) {
+  Serial.print("TX time(us): "); Serial.print(t1);
+  Serial.print("  RX wait(us): "); Serial.print(t2);
+  Serial.print("  RX frame(us): "); Serial.println(t3);
 }
 
 void loop() {
-  // uint8_t values[16];
-  // for (uint8_t i = 0; i < 16; ++i) {
-  //   values[i] = 1; // or any number
-  // }
+  const uint8_t SLAVE_ID = 0x01;
 
-  // Step timing variables
+  // Example: request location (function 0x04)
+  uint8_t pkt[2] = { SLAVE_ID, 0x04 };
+
+  unsigned long t0 = micros();
+  bus.sendRequest(pkt, sizeof(pkt));
   unsigned long t1 = micros();
 
-  // sendAddCommand(bus, 0x01, values, sizeof(values));
-  sendRequestLocation(bus, 0x01);
+  uint8_t resp[64];
+  size_t len = bus.receiveResponse(resp, sizeof(resp), 50);
+  unsigned long t2 = micros();
 
-  unsigned long t2 = micros();  // after send
+  if (len >= 2 && resp[0] == SLAVE_ID && resp[1] == 0x04 && len == 2 + 1 + 6) {
+    // [ID][FC][ByteCount=6][xH][xL][yH][yL][hH][hL]
+    int16_t x = (int16_t)((resp[3] << 8) | resp[4]);
+    int16_t y = (int16_t)((resp[5] << 8) | resp[6]);
+    uint16_t heading = (uint16_t)((resp[7] << 8) | resp[8]);
 
-  // uint8_t response[16];
-  // size_t len = bus.receiveResponse(response, sizeof(response));
+    Serial.print("X: "); Serial.print(x);
+    Serial.print("  Y: "); Serial.print(y);
+    Serial.print("  H(deg*100): "); Serial.println(heading);
 
-  uint8_t response[64];
-  size_t len = bus.receiveResponse(response, sizeof(response));
-
-
-  unsigned long t3 = micros();  // after receive
-
-  if (len > 0) {
-    // if (len >= 5 && response[0] == 0x01 && response[1] == 0x03 && response[2] == 0x02) {
-    //   uint16_t sum = (response[3] << 8) | response[4];
-    //   Serial.print("Received sum from slave: ");
-    //   Serial.println(sum);
-
-    if (len >= 9 && response[0] == 0x01 && response[1] == 0x04 && response[2] == 0x06) {
-      uint16_t x = (response[3] << 8) | response[4];
-      uint16_t y = (response[5] << 8) | response[6];
-      uint16_t heading = (response[7] << 8) | response[8];
-
-      Serial.print("X: "); Serial.print(x);
-      Serial.print("  Y: "); Serial.print(y);
-      Serial.print("  Heading: "); Serial.println(heading);
-
-      printTiming(t1, t2, t3);
-    } else {
-      Serial.println("Invalid response:");
-      bus.printBytes(response, len);
-    }
+    printTiming(t1 - t0, (t2 - t1), 0UL);
+  } else if (len > 0) {
+    Serial.println("Invalid response:");
+    bus.printBytes(resp, len);
   } else {
-    Serial.println("No response or timeout");
+    Serial.println("No response / timeout");
   }
-
-  Serial.println();
 
   delay(1000);
 }

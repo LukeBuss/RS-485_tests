@@ -1,22 +1,5 @@
 #pragma once
 
-// ESP32-specific pin assignments
-#ifdef TARGET_ESP32
-
-  #ifdef ROLE_MASTER
-    #define DE_RE_PIN 27
-    #define RS485_RX 16
-    #define RS485_TX 17
-    #define LED_BUILTIN 2
-  #elif defined(ROLE_SLAVE1)
-    #define DE_RE_PIN 26
-    #define RS485_RX 18
-    #define RS485_TX 19
-    #define LED_BUILTIN 2
-  #endif
-
-#endif
-
 // Nano-specific pin assignments
 #ifdef TARGET_NANO
   #define DE_RE_PIN 5
@@ -28,4 +11,10 @@
   // RS485_TX 6
   // RS485_RX 7
   #define DE_RE_PIN 8 // D8 drives DE & /RE (tied)
+#endif
+
+#ifdef TARGET_ESP32S3
+  #define RS485_TX 7
+  #define RS485_RX 8
+  #define DE_RE_PIN 9
 #endif
