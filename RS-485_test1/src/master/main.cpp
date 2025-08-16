@@ -1,37 +1,58 @@
-#include <Arduino.h>
+#include <HardwareSerial.h>
 
-// XIAO ESP32-S3 — Sender
-#define RX_PIN D2   // Board's RX pad (not used on sender, but required by begin)
-#define TX_PIN D1   // Board's TX pad
+HardwareSerial mySerial(1); 
 
-const int LED_PIN = D9; // Indicator Light
+unsigned long blinkTimer = 0;
 
-void setup() {  
-  pinMode(LED_PIN, OUTPUT); // Indicator Light
-  digitalWrite(LED_PIN, HIGH); // LED ON
+// XIAO ESP32-S3 + MAX3485 half-duplex
+const int PIN_EN = D9;   // DE & !RE tied here (HIGH=TX, LOW=RX)
+const int PIN_RX = D8;   // RO -> MCU RX
+const int PIN_TX = D7;   // MCU TX -> DI
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW); // LED ON
+void rs485Begin() {
+  pinMode(PIN_EN, OUTPUT);
+  digitalWrite(PIN_EN, HIGH); // start in receive
+  Serial.begin(115200);      // USB debug
+  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX); // map UART to D8/D7
+}
 
-  Serial.begin(115200);                      // USB CDC
-  Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); // map pins to UART1
-  Serial.println("Sender ready");
+// transmit helper (toggles DE/!RE)
+void rs485Write(const uint8_t* data, size_t len) {
+  digitalWrite(PIN_EN, LOW);           // TX on, RX off
+  delayMicroseconds(2);                 // enable settle (conservative)
+  Serial1.write(data, len);
+  Serial1.flush();                      // wait for bytes to leave
+  delayMicroseconds(2);                 // turn-around guard
+  digitalWrite(PIN_EN, HIGH);            // back to RX
+}
+
+
+
+
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT); // Set the built-in LED pin as an output
+  digitalWrite(LED_BUILTIN, LOW); // Turn the LED ON
+
+  rs485Begin(); Serial.println("Master up");
 }
 
 void loop() {
-  static uint32_t i = 0;
-  Serial1.printf("ON %lu\n", i++);
+  static uint32_t count = 0;
+  static uint32_t n = 0;
+  char buf[32];
+  int len = snprintf(buf, sizeof(buf), "PING %lu\n", (unsigned long)n++);
+  rs485Write((uint8_t*)buf, len);
 
-  Serial.printf("LED ON %lu\n", i);
-  digitalWrite(LED_PIN, HIGH); // LED ON
-  digitalWrite(LED_BUILTIN, HIGH); // LED OFF
-  delay(500);
+  uint32_t t0 = millis();
+  while (millis() - t0 < 200) {        // short listen window
+    while (Serial1.available()) Serial.write(Serial1.read());
+  }
 
-  // Toggle LED state
-  Serial1.printf("OFF\n");
-
-  Serial.printf("LED OFF\n");
-  digitalWrite(LED_PIN, LOW); // LED OFF
-  digitalWrite(LED_BUILTIN, LOW); // LED ON
+  if (millis() - blinkTimer > 1000) {
+    blinkTimer = millis();
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Toggle the built-in LED
+    Serial.print("LED toggled at: ");
+    Serial.println(++count);
+  }
   delay(500);
 }

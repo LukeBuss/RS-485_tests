@@ -1,46 +1,60 @@
-#include <Arduino.h>
+#include <HardwareSerial.h>
 
-// XIAO ESP32-S3 — Receiver
-#define RX_PIN D2   // Board's RX pad
-#define TX_PIN D1   // Board's TX pad (not used on receiver, but required by begin)
+HardwareSerial mySerial(1); // Use UART2
+#define enable_pin D2 // Define the enable pin as D2
 
-const int LED_PIN = D9; // Indicator Light
-unsigned long timeSinceLastBlink = 0;
+unsigned long blinkTimer = 0;
+
+// XIAO ESP32-S3 + MAX3485 half-duplex
+const int PIN_EN = D9;   // DE & !RE tied here (HIGH=TX, LOW=RX)
+const int PIN_RX = D8;   // RO -> MCU RX
+const int PIN_TX = D7;   // MCU TX -> DI
+
+void rs485Begin() {
+  pinMode(PIN_EN, OUTPUT);
+  digitalWrite(PIN_EN, HIGH); // start in receive
+  Serial.begin(115200);      // USB debug
+  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX); // map UART to D8/D7
+}
+
+// transmit helper (toggles DE/!RE)
+void rs485Write(const uint8_t* data, size_t len) {
+  digitalWrite(PIN_EN, LOW);           // TX on, RX off
+  delayMicroseconds(2);                 // enable settle (conservative)
+  Serial1.write(data, len);
+  Serial1.flush();                      // wait for bytes to leave
+  delayMicroseconds(2);                 // turn-around guard
+  digitalWrite(PIN_EN, HIGH);            // back to RX
+}
 
 void setup() {
-  pinMode(LED_PIN, OUTPUT); // Indicator Light
-  digitalWrite(LED_PIN, HIGH); // LED ON
+  pinMode(LED_BUILTIN, OUTPUT); // Set the built-in LED pin as an output
+  digitalWrite(LED_BUILTIN, LOW); // Turn the LED ON
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW); // LED ON
-
-  Serial.begin(115200);                      
-  Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN);
-  Serial.println("Receiver ready");
+  rs485Begin(); Serial.println("Slave1 up");
 }
 
 void loop() {
+  static uint32_t count = 0;
+  static char inbuf[64];
+  static int idx = 0;
+
   while (Serial1.available()) {
-    String input = "";
-    while (Serial1.available()) {
-      char c = Serial1.read();
-      input += c;
-      delay(2); // small delay to allow buffer to fill
-    }
-    // if the first 3 letters of input are "ON "
-    if (input.startsWith("ON ")) {
-      Serial.printf("ON  %lu\n", input.substring(3).toInt());
-      digitalWrite(LED_PIN, HIGH);
-    } else if (input.startsWith("OFF")) {
-      Serial.println("OFF");
-      Serial.println();
-      digitalWrite(LED_PIN, LOW);
-    } else if (input.length() > 0) {
-      Serial.printf("UNKNOWN MESSAGE: %s\n", input.c_str());
+    char c = (char)Serial1.read();
+    Serial.write(c);                    // show on USB
+    if (idx < (int)sizeof(inbuf)-1) inbuf[idx++] = c;
+    if (c == '\n') {                    // got a line -> echo it
+      inbuf[idx] = '\0';
+      rs485Write((uint8_t*)inbuf, idx);
+      idx = 0;
     }
   }
-  if (millis() - timeSinceLastBlink > 1000) {
-    timeSinceLastBlink = millis();
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Toggle LED
+
+  if (millis() - blinkTimer > 1000) {
+    blinkTimer = millis();
+    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Toggle the built-in LED
+    Serial.print("LED toggled at: ");
+    Serial.println(++count);
   }
+  delay(500);
 }
