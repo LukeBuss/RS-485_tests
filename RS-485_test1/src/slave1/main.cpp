@@ -36,7 +36,7 @@ void loop() {
       Serial.println();
       digitalWrite(LED_PIN, LOW);
     } else if (input.length() > 0) {
-      Serial.println(input);
+      Serial.printf("UNKNOWN MESSAGE: %s\n", input.c_str());
     }
   }
   if (millis() - timeSinceLastBlink > 1000) {
