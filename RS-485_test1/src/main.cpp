@@ -8,7 +8,7 @@ const int LED_PIN = D9; // D7 = 44, D8 = 7, D9 = 8
 
 void setup() {
   Serial.begin(SERIAL_BAUD); // Uses value from platformio.ini
-  while (!Serial) delay(10);
+  //while (!Serial) delay(10);
 
   pinMode(LED_BUILTIN, OUTPUT);
   Serial.println("Starting blink test...");
