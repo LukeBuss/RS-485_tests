@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <LogQueue.h>
 extern "C" {
   #include "driver/uart.h"
   #include "esp_timer.h"
@@ -123,22 +124,21 @@ static void task_rx(void*) {
             if (cmd == CMD_LOC_RSP && plen == 6) {
               int64_t t2 = esp_timer_get_time(); // received timestamp
               // Decode payload
-              int16_t x_cm =  (int16_t)((uint16_t)payload[0] | ((uint16_t)payload[1] << 8));
-              int16_t y_cm =  (int16_t)((uint16_t)payload[2] | ((uint16_t)payload[3] << 8));
+              int16_t x_in =  (int16_t)((uint16_t)payload[0] | ((uint16_t)payload[1] << 8));
+              int16_t y_in =  (int16_t)((uint16_t)payload[2] | ((uint16_t)payload[3] << 8));
               uint16_t h_cdeg = (uint16_t)payload[4] | ((uint16_t)payload[5] << 8);
 
               // Print timestamps + deltas
               int64_t t0 = g_t0_req_begin_us;
               int64_t t1 = g_t1_req_sent_us;
-              Serial.printf("t0(before TX)=%lld us, t1(after TX)=%lld us, t2(recv)=%lld us\n",
-                            (long long)t0, (long long)t1, (long long)t2);
-              Serial.printf("dur_tx=%lld us, rtt=%lld us, resp_after_tx=%lld us\n",
-                            (long long)(t1 - t0),
-                            (long long)(t2 - t0),
-                            (long long)(t2 - t1));
-
-              Serial.printf("LOC: x=%.2f cm, y=%.2f cm, heading=%.2f deg\n",
-                            x_cm / 1.0f, y_cm / 1.0f, h_cdeg / 100.0f);
+              // Serial.printf("t0(before TX)=%lld us, t1(after TX)=%lld us, t2(recv)=%lld us\n",
+              //               (long long)t0, (long long)t1, (long long)t2);
+              uint32_t br = 0;
+              uart_get_baudrate(UART_PORT, &br);
+              LOGF("UART%u actual baud: %u\n", UART_PORT, br);
+              LOGF("dur_tx=%lld us, resp_after_tx=%lld us, rtt=%lld us | LOC: x=%.2f in, y=%.2f in, heading=%.2f deg\n\n",
+                            (long long)(t1 - t0), (long long)(t2 - t1), (long long)(t2 - t0),
+                            x_in / 100.0f, y_in / 100.0f, h_cdeg / 100.0f);
             }
           }
         }
@@ -174,8 +174,9 @@ static void rs485_init(uint32_t baud = 1000000) { // 1 Mbps
 }
 
 void setup() {
-  Serial.begin(115200);
-  rs485_init(1000000);
+  Serial.begin(921600);
+  Log::init(Log::DROP_OLDEST, 1, 2048, 1); // init LogQueue with default settings
+  rs485_init(10000000);
   xTaskCreatePinnedToCore(task_rx, "rx", 4096, nullptr, 3, nullptr, 0); // core 0
   xTaskCreatePinnedToCore(task_tx, "tx", 4096, nullptr, 2, nullptr, 0); // core 0
 }

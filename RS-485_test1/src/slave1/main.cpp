@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <LogQueue.h>
 extern "C" {
   #include "driver/uart.h"
 }
@@ -63,17 +64,17 @@ static bool parseOneFrame(uint8_t* in, size_t n, size_t& used,
   return true;
 }
 
-// Hardcoded location: x,y in cm (signed), heading in centideg (0..35999)
+// Hardcoded location: x,y in in (signed), heading in centideg (0..35999)
 static void sendHardcodedLocation() {
-  int16_t x_cm = -25359;    // -253.59 cm
-  int16_t y_cm = -1600;     // -16.00 cm
+  int16_t x_in = -25359;    // -253.59 in
+  int16_t y_in = -1600;     // -16.00 in
   uint16_t h_cdeg = 35999;  // 359.99 deg
 
   uint8_t p[6];
-  p[0] = (uint8_t)(x_cm & 0xFF);
-  p[1] = (uint8_t)(x_cm >> 8);
-  p[2] = (uint8_t)(y_cm & 0xFF);
-  p[3] = (uint8_t)(y_cm >> 8);
+  p[0] = (uint8_t)(x_in & 0xFF);
+  p[1] = (uint8_t)(x_in >> 8);
+  p[2] = (uint8_t)(y_in & 0xFF);
+  p[3] = (uint8_t)(y_in >> 8);
   p[4] = (uint8_t)(h_cdeg & 0xFF);
   p[5] = (uint8_t)(h_cdeg >> 8);
 
@@ -135,7 +136,7 @@ static void rs485_init(uint32_t baud = 1000000) {
 
 void setup() {
   Serial.begin(115200);
-  rs485_init(1000000);
+  rs485_init(10000000);
   xTaskCreatePinnedToCore(task_rx, "rx", 4096, nullptr, 3, nullptr, 0); // core 0
 }
 
