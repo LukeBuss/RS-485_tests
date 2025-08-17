@@ -1,67 +1,57 @@
 #include <Arduino.h>
+extern "C" {
+  #include "driver/uart.h"
+}
 
-// -------- Pin map (XIAO ESP32-S3) --------
-// D7 = TX (GPIO44), D8 = RX (GPIO7), D9 = external LED (GPIO8)
+#define UART_PORT   UART_NUM_1
+#define TXD_PIN     GPIO_NUM_44   // D7
+#define RXD_PIN     GPIO_NUM_7    // D8
+#define RTS_DE_PIN  GPIO_NUM_8    // D9 -> DE&!RE (hardware drives it)
+
 #ifndef LED_BUILTIN
-  #define LED_BUILTIN 21   // XIAO S3 user LED
+  #define LED_BUILTIN 21          // XIAO S3 user LED (active-LOW)
 #endif
-const bool LED_BUILTIN_ACTIVE_LOW = true;
+const bool LED_ACTIVE_LOW = true;
 
-const int PIN_LED_EXT = D9;     // active-HIGH LED
-const int PIN_UART_TX = D1;     // -> other board RX
-const int PIN_UART_RX = D2;     // <- other board TX
+static QueueHandle_t uart_queue = nullptr;
 
-// Shared state (updated by core0, used by core1)
-volatile bool g_ledCmdOn = false;
-
-// Tasks
-void taskBlinkBuiltin(void *);  // core 0: 1 Hz blink, sets g_ledCmdOn
-void taskUartTx(void *);        // core 1: send LED_ON/OFF every 500 ms and drive D9
-
-void setup() {
-  Serial.begin(115200);
-  delay(50);
-  Serial.println("[MASTER] start");
-
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(PIN_LED_EXT, OUTPUT);
-  digitalWrite(PIN_LED_EXT, LOW);
-  digitalWrite(LED_BUILTIN, LED_BUILTIN_ACTIVE_LOW ? HIGH : LOW); // off
-
-  // Route UART1 to D8 (RX) / D7 (TX)
-  Serial1.begin(115200, SERIAL_8N1, PIN_UART_RX, PIN_UART_TX);
-
-  // Core 0: blink; Core 1: TX
-  xTaskCreatePinnedToCore(taskBlinkBuiltin, "blink", 2048, nullptr, 1, nullptr, 0);
-  xTaskCreatePinnedToCore(taskUartTx,       "uart_tx", 4096, nullptr, 1, nullptr, 1);
+static void rs485_init(uint32_t baud = 1000000) { // 1 Mbps default
+  uart_config_t cfg = {
+    .baud_rate = (int)baud,
+    .data_bits = UART_DATA_8_BITS,
+    .parity    = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    .source_clk = UART_SCLK_APB
+  };
+  ESP_ERROR_CHECK(uart_param_config(UART_PORT, &cfg));
+  // RTS is used by RS-485 mode as DE. No CTS used.
+  ESP_ERROR_CHECK(uart_set_pin(UART_PORT, TXD_PIN, RXD_PIN, RTS_DE_PIN, UART_PIN_NO_CHANGE));
+  // Bigger RX/TX buffers keep things smooth; queue gives you RX events if you need them later
+  ESP_ERROR_CHECK(uart_driver_install(UART_PORT, 4096, 4096, 10, &uart_queue, 0));
+  ESP_ERROR_CHECK(uart_set_mode(UART_PORT, UART_MODE_RS485_HALF_DUPLEX)); // auto-DE!
 }
 
-void loop() {
-  vTaskDelay(pdMS_TO_TICKS(1000));
-}
-
-// -------- core0: blink builtin every 1000 ms --------
-void taskBlinkBuiltin(void *) {
+void task_tx(void *){
   bool on = false;
-  for (;;) {
+  for(;;){
     on = !on;
-    // builtin LED is active-LOW on XIAO S3
-    digitalWrite(LED_BUILTIN, LED_BUILTIN_ACTIVE_LOW ? (on ? LOW : HIGH)
-                                                     : (on ? HIGH : LOW));
-    g_ledCmdOn = on;  // publish state for TX task
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-}
-
-// -------- core1: send command every 500 ms + mirror to D9 --------
-void taskUartTx(void *) {
-  for (;;) {
-    // Mirror state locally
-    digitalWrite(PIN_LED_EXT, g_ledCmdOn ? HIGH : LOW);
-
-    if (g_ledCmdOn)  { Serial1.print("LED_ON\n");  Serial.println("TX: LED_ON");  }
-    else             { Serial1.print("LED_OFF\n"); Serial.println("TX: LED_OFF"); }
-
+    digitalWrite(LED_BUILTIN, LED_ACTIVE_LOW ? (on ? LOW : HIGH)
+                                             : (on ? HIGH : LOW));
+    const char *msg = on ? "LED_ON\n" : "LED_OFF\n";
+    uart_write_bytes(UART_PORT, msg, strlen(msg));
+    // No manual DE toggling; auto-DE handles turn-around cleanly
+    uart_wait_tx_done(UART_PORT, pdMS_TO_TICKS(5));
     vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LED_ACTIVE_LOW ? HIGH : LOW);
+  rs485_init(1000000);   // try 2'000'000 after it’s stable
+  xTaskCreatePinnedToCore(task_tx, "tx", 4096, nullptr, 3, nullptr, 0);
+}
+
+void loop(){ vTaskDelay(pdMS_TO_TICKS(1000)); }
