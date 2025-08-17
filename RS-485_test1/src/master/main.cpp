@@ -1,58 +1,71 @@
-#include <HardwareSerial.h>
+#include <Arduino.h>
 
-HardwareSerial mySerial(1); 
-
-unsigned long blinkTimer = 0;
-
-// XIAO ESP32-S3 + MAX3485 half-duplex
-const int PIN_EN = D9;   // DE & !RE tied here (HIGH=TX, LOW=RX)
+// ---- Pin map (XIAO ESP32-S3) ----
+const int PIN_EN = D9;   // DE & !RE tied together (HIGH=TX, LOW=RX)
 const int PIN_RX = D8;   // RO -> MCU RX
 const int PIN_TX = D7;   // MCU TX -> DI
 
-void rs485Begin() {
+// ---- Timing (adjust if needed) ----
+#define RS485_PRE_TX_US   40    // settle after EN HIGH before sending
+#define RS485_POST_TX_US  120   // guard time after flush before EN LOW
+
+// Helpers
+static inline void rs485Begin() {
   pinMode(PIN_EN, OUTPUT);
-  digitalWrite(PIN_EN, HIGH); // start in receive
-  Serial.begin(115200);      // USB debug
-  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX); // map UART to D8/D7
+  digitalWrite(PIN_EN, LOW);  // start in receive
+  Serial.begin(115200);
+  Serial1.begin(115200, SERIAL_8N1, PIN_RX, PIN_TX);
+  delay(20);
 }
 
-// transmit helper (toggles DE/!RE)
-void rs485Write(const uint8_t* data, size_t len) {
-  digitalWrite(PIN_EN, LOW);           // TX on, RX off
-  delayMicroseconds(2);                 // enable settle (conservative)
+static inline void rs485Write(const uint8_t* data, size_t len) {
+  digitalWrite(PIN_EN, HIGH);                 // TX on, RX off
+  delayMicroseconds(RS485_PRE_TX_US);
   Serial1.write(data, len);
-  Serial1.flush();                      // wait for bytes to leave
-  delayMicroseconds(2);                 // turn-around guard
-  digitalWrite(PIN_EN, HIGH);            // back to RX
+  Serial1.flush();                            // wait until shifted out
+  delayMicroseconds(RS485_POST_TX_US);
+  digitalWrite(PIN_EN, LOW);                  // back to RX
 }
 
-
-
+// Read a '\n'-terminated line with timeout (ms)
+// Returns true if a line was captured into buf (stripped of '\n')
+bool readLine(char* buf, size_t buflen, uint32_t timeout_ms) {
+  size_t i = 0;
+  uint32_t t0 = millis();
+  while (millis() - t0 < timeout_ms) {
+    while (Serial1.available()) {
+      char c = (char)Serial1.read();
+      if (c == '\n') {
+        if (i < buflen) buf[i] = '\0';
+        return true;
+      }
+      if (i + 1 < buflen) buf[i++] = c;      // keep space for NUL
+    }
+    delay(1);
+  }
+  if (i < buflen) buf[i] = '\0';
+  return false;
+}
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT); // Set the built-in LED pin as an output
-  digitalWrite(LED_BUILTIN, LOW); // Turn the LED ON
-
-  rs485Begin(); Serial.println("Master up");
+  rs485Begin();
+  Serial.println("[MASTER] RS-485 up");
 }
 
 void loop() {
-  static uint32_t count = 0;
   static uint32_t n = 0;
-  char buf[32];
-  int len = snprintf(buf, sizeof(buf), "PING %lu\n", (unsigned long)n++);
-  rs485Write((uint8_t*)buf, len);
+  char out[32];
+  int len = snprintf(out, sizeof(out), "PING %lu\n", (unsigned long)n++);
 
-  uint32_t t0 = millis();
-  while (millis() - t0 < 200) {        // short listen window
-    while (Serial1.available()) Serial.write(Serial1.read());
+  rs485Write((uint8_t*)out, len);
+  Serial.print("TX: "); Serial.write(out, len);
+
+  char in[64];
+  if (readLine(in, sizeof(in), 250)) {
+    Serial.print("RX: "); Serial.println(in);
+  } else {
+    Serial.println("RX: (timeout)");
   }
 
-  if (millis() - blinkTimer > 1000) {
-    blinkTimer = millis();
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // Toggle the built-in LED
-    Serial.print("LED toggled at: ");
-    Serial.println(++count);
-  }
   delay(500);
 }
