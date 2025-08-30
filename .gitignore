@@ -39,3 +39,6 @@
 
 # debug information files
 *.dwo
+
+# Mac .DS_Store files
+*.DS_Store
