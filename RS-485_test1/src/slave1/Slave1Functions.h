@@ -1,46 +1,39 @@
 #pragma once
 #include <RS485ModbusRTU.h>
 
-// Handles function code 0x03: ADD N values
-inline void handleFunction03_Add(RS485ModbusRTU& bus, const uint8_t* request, size_t length) {
-  if (length < 3) return; // need at least [ID][Func][Count]
-  uint8_t count = request[2];
-  if (length < 3 + static_cast<size_t>(count)) return;
-  
+// 0x03: sum N one-byte values
+inline void handleFunction03_Add(RS485ModbusRTU& bus, const uint8_t* req, size_t len) {
+  if (len < 3) return;
+  const uint8_t count = req[2];
+  if (len < (size_t)(3 + count)) return;
+
   uint16_t sum = 0;
-  for (uint8_t i = 0; i < count; ++i) {
-    sum += request[3 + i];
-  }
+  for (uint8_t i = 0; i < count; ++i) sum += req[3 + i];
 
-  uint8_t reply[] = {
-    request[0],      // Slave ID
-    0x03,            // Function code
-    0x02,            // Byte count
-    (uint8_t)(sum >> 8),
-    (uint8_t)(sum & 0xFF)
+  uint8_t reply[5] = {
+    req[0], 0x03, 0x02,
+    (uint8_t)(sum >> 8), (uint8_t)(sum & 0xFF)
   };
-
   bus.sendRequest(reply, sizeof(reply));
 }
 
-inline void handleFunction04_Location(RS485ModbusRTU& bus, const uint8_t* request, size_t length) {
-  if (length < 2) return;
+// 0x04: return (x, y, heading)
+// You can wire in real sensors here; for now produce a simple synthetic pose.
+inline void handleFunction04_Location(RS485ModbusRTU& bus, const uint8_t* req, size_t len) {
+  (void)len;
+  static int16_t x = -254;   // example units (cm*1)
+  static int16_t y = -16;
+  static uint16_t h = 35999; // heading in deg*100 (0..35999)
 
-  // Dummy location data (example values)
-  uint16_t x = 25359;      // e.g., in millimeters
-  uint16_t y = -1600;
-  uint16_t heading = 35999; // e.g., in tenths of degrees
+  // demo: tweak a little each call
+  x += 1; if (x > 500) x = -500;
+  h += 37; if (h >= 36000) h -= 36000;
 
-  uint8_t reply[] = {
-    request[0],     // Slave ID
-    0x04,           // Function code (same as request)
-    0x06,           // Byte count (3 values × 2 bytes)
-
-    static_cast<uint8_t>(x >> 8), static_cast<uint8_t>(x & 0xFF),
-    static_cast<uint8_t>(y >> 8), static_cast<uint8_t>(y & 0xFF),
-    static_cast<uint8_t>(heading >> 8), static_cast<uint8_t>(heading & 0xFF)
+  uint8_t reply[2 + 1 + 6] = {
+    req[0], 0x04, 0x06,
+    (uint8_t)(x >> 8), (uint8_t)(x & 0xFF),
+    (uint8_t)(y >> 8), (uint8_t)(y & 0xFF),
+    (uint8_t)(h >> 8), (uint8_t)(h & 0xFF)
   };
-
   bus.sendRequest(reply, sizeof(reply));
 }
-

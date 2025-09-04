@@ -1,4 +1,3 @@
-// RS485ModbusRTU.h
 #pragma once
 #include <Arduino.h>
 
@@ -10,21 +9,24 @@
 class RS485ModbusRTU {
 public:
 #ifdef TARGET_NANO
-  RS485ModbusRTU(uint8_t derePin);
+  explicit RS485ModbusRTU(uint8_t derePin);
 #else
   RS485ModbusRTU(HardwareSerial& serialPort, uint8_t derePin);
 #endif
 
-  void begin(unsigned long baud = 38400);
-  void setDebug(Stream* debugStream);
-  void enableDebug(bool enable = true) { debugEnabled = enable; }
-  bool isDebugEnabled() const { return debugEnabled; }
-  void printBytes(const uint8_t* data, size_t len);
+  void begin(unsigned long baud);
 
+  // Optional debugging to Serial, etc.
+  void setDebug(Stream* s) { debugOut = s; }
+  void enableDebug(bool en) { debugEnabled = en; }
+
+  // TX a packet (raw bytes, no CRC by design in your project)
   void sendRequest(const uint8_t* data, size_t len);
-  size_t receiveResponse(uint8_t* buffer, size_t maxLen);
 
-  uint16_t computeCRC(const uint8_t* data, size_t len); // exposed for use outside
+  // RX until 3.5 character times of silence or timeout (ms)
+  size_t receiveResponse(uint8_t* buffer, size_t maxlen, unsigned long timeoutMs = 50);
+
+  void printBytes(const uint8_t* data, size_t len);
 
 private:
 #ifdef TARGET_NANO
@@ -34,9 +36,9 @@ private:
 #endif
 
   uint8_t derePin;
-  Stream* debugOut;
-  bool debugEnabled = false;
-  unsigned long charTimeMicros;
+  Stream*  debugOut = nullptr;
+  bool     debugEnabled = false;
+  unsigned long charTimeMicros = 0;
 
   void enableTransmit();
   void enableReceive();
