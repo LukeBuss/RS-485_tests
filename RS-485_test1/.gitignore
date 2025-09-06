@@ -3,3 +3,9 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+.DS_Store
+
+pio.local.ini
+pio.*.ini
+platformio_override.ini
