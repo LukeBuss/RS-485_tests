@@ -41,8 +41,8 @@
 *.dwo
 
 # Mac .DS_Store files
-.DS_Store
+*.DS_Store
 
 # platformio.ini local upload_port overrides
-pio.*.ini
-platformio_override.ini
+*.pio.*.ini
+*.platformio_override.ini
