@@ -173,3 +173,20 @@ void rs485_init(uint32_t baud = 1000000) { // 1 Mbps
   ESP_ERROR_CHECK(uart_driver_install(UART_PORT, 4096, 4096, 10, &uart_queue, 0));
   ESP_ERROR_CHECK(uart_set_mode(UART_PORT, UART_MODE_RS485_HALF_DUPLEX)); // auto-DE mode
 }
+
+bool rs485_parse_frame(uint8_t* in, size_t n, size_t* used,
+                       uint8_t* addr, uint8_t* cmd,
+                       uint8_t* payload, uint8_t* plen) {
+  size_t u=0; uint8_t a=0,c=0,L=0;
+  bool ok = parseOneFrame(in, n, u, a, c, payload, L);
+  if (used) *used = u;
+  if (addr) *addr = a;
+  if (cmd)  *cmd  = c;
+  if (plen) *plen = L;
+  return ok;
+}
+
+void rs485_send_frame(uint8_t addr, uint8_t cmd,
+                      const uint8_t* payload, uint8_t plen) {
+  sendFrame(addr, cmd, payload, plen);
+}

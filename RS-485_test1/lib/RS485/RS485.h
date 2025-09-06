@@ -9,6 +9,12 @@ public:
     void task_rx(void* arg);
     void task_tx(void* arg);
 
+    bool rs485_parse_frame(uint8_t* in, size_t n, size_t* used,
+                        uint8_t* addr, uint8_t* cmd,
+                        uint8_t* payload, uint8_t* plen);
+    void rs485_send_frame(uint8_t addr, uint8_t cmd,
+                        const uint8_t* payload, uint8_t plen);
+
     void begin();
     void end();
 
